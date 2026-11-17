@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Naify Manager</title>
+    <link rel="stylesheet" href="/static/style.css?v=queue-control-1">
+</head>
+<body>
+    <!-- 사이트 상단 제목 및 설명 -->
+    <header class="page-header">
+        <h1>Naify</h1>
+        <p>이미지 생성 및 설정 관리🥰</p>
+        <div class="server-close-notice" role="note">
+            <p>
+                <strong>안내:</strong>
+                브라우저 탭을 닫아도 Naify 서버는 계속 실행됩니다.<br>
+                완전히 종료하려면 페이지 하단의
+                <strong>Naify 종료</strong> 버튼을 사용하세요.
+            </p>
+        </div>
+    </header>
+
+    <!-- 카드 레이아웃: PC 두 열, 모바일 한 열 -->
+    <main class="settings-grid">
+
+        <!-- 이미지 생성 옵션: 기존 ID를 유지해야 JavaScript가 정상 동작함 -->
+        <section class="settings-card aligned-fields">
+            <h2>이미지 생성 설정</h2>
+            <div>
+                <label for="model">생성 모델:</label>
+                <select id="model">
+                    <option value="nai-diffusion-4-5-full">NAI Diffusion 4.5 Full</option>
+                    <option value="nai-diffusion-4-5-curated">NAI Diffusion 4.5 Curated</option>
+                    <option value="nai-diffusion-5-full">NAI Diffusion 5 Full</option>
+                    <option value="nai-diffusion-5-curated">NAI Diffusion 5 Curated</option>
+                </select>
+            </div>
+            <div><label for="width">이미지 너비:</label> <input type="number" id="width" min="512" step="64" value="1216"></div>
+            <div><label for="height">이미지 높이:</label> <input type="number" id="height" min="512" step="64" value="832"></div>
+            <div><label for="steps">생성 단계(Steps):</label> <input type="number" id="steps" min="1" max="50" value="28"></div>
+            <div><label for="prompt_guidance">프롬프트 가이던스:</label> <input type="number" id="prompt_guidance" min="0" max="10" step="0.1" value="7"></div>
+            <div>
+                <label for="sampler">샘플러:</label>
+                <select id="sampler">
+                    <option value="k_euler_ancestral">Euler Ancestral</option>
+                    <option value="k_euler">Euler</option>
+                    <option value="k_dpmpp_2s_ancestral">DPM++ 2S Ancestral</option>
+                    <option value="k_dpmpp_2m_sde">DPM++ 2M SDE</option>
+                    <option value="k_dpmpp_2m">DPM++ 2M</option>
+                    <option value="k_dpmpp_sde">DPM++ SDE</option>
+                </select>
+            </div>
+            <div><label for="prompt_guidance_rescale">가이던스 리스케일:</label> <input type="number" id="prompt_guidance_rescale" min="0" max="1" step="0.01" value="0.4"></div>
+            <div>
+                <label for="noise_schedule">노이즈 스케줄:</label>
+                <select id="noise_schedule">
+                    <option value="karras">Karras</option>
+                    <option value="exponential">Exponential</option>
+                    <option value="polyexponential">Polyexponential</option>
+                </select>
+            </div>
+        </section>
+
+        <!-- 프롬프트 설정: 이미지 생성 설정 오른쪽에 배치 -->
+        <section class="settings-card">
+            <h2>프롬프트 설정</h2>
+            <div><label for="base_prompt">기본 프롬프트:</label><br><textarea id="base_prompt" rows="8" cols="80"></textarea></div>
+            <div><label for="negative_prompt">네거티브 프롬프트:</label><br><textarea id="negative_prompt" rows="8" cols="80"></textarea></div>
+        </section>
+
+    </main>
+
+    <!-- SSE를 통해 서버 로그를 실시간 표시한다. -->
+    <section class="settings-card server-log-panel" aria-labelledby="server-log-title">
+        <div class="server-log-header">
+            <h2 id="server-log-title">실시간 서버 로그</h2>
+            <div class="server-log-actions">
+                <span id="log-connection-status" class="log-connection-status" role="status">연결 중...</span>
+                <button type="button" id="cancel-pending-button" class="danger-button">대기 요청 모두 취소</button>
+            </div>
+        </div>
+        <div class="server-log-container">
+            <div id="server-log-output" class="server-log-output" role="log" aria-label="Naify 서버 로그"></div>
+            <button type="button" id="server-log-resize" class="server-log-resize" aria-label="로그 창 높이 조절" title="드래그해서 로그 창 높이 조절"></button>
+        </div>
+        <p id="cancel-pending-status" class="queue-action-status" role="status" aria-live="polite"></p>
+        <p class="server-log-hint">최근 300줄을 표시합니다. 박스 오른쪽 아래 손잡이를 드래그해 높이를 조절할 수 있습니다.</p>
+    </section>
+
+    <!-- 캐시 설정은 항상 표시하고, 이미지 목록만 접고 펼친다. -->
+    <section class="settings-card cache-gallery-panel">
+        <fieldset class="cache-settings-fields">
+            <legend>캐시 설정</legend>
+            <div><label for="max_cache_size">최대 캐시 용량(MB):</label> <input type="number" id="max_cache_size" min="1"></div>
+            <div><label for="max_images">최대 이미지 개수:</label> <input type="number" id="max_images" min="1"></div>
+        </fieldset>
+        <details class="cache-image-details" id="cache-gallery-panel">
+            <summary>캐시 이미지 확인 <span class="summary-hint">클릭하여 펼치기</span></summary>
+            <div class="cache-gallery-content">
+                <p id="cache-status" role="status">캐시 현황을 확인하는 중...</p>
+                <div class="cache-gallery-actions">
+                    <button type="button" id="refresh-cache">목록 새로고침</button>
+                    <button type="button" id="clear-cache" class="danger-button">캐시 전체 삭제</button>
+                </div>
+                <p id="cache-action-status" role="status"></p>
+                <div id="cache-gallery" class="cache-gallery" aria-live="polite"></div>
+            </div>
+        </details>
+    </section>
+
+    <!-- 자주 바꾸지 않는 API 키는 페이지 맨 아래에서 필요할 때만 펼침 -->
+    <details class="settings-card api-key-panel">
+        <summary>NovelAI API 키 관리 <span class="summary-hint">클릭하여 펼치기</span></summary>
+        <div class="api-key-panel-content">
+            <p id="api-key-status" role="status">등록 상태 확인 중...</p>
+            <div>
+                <label for="api-key">새 API 키:</label>
+                <input type="password" id="api-key" autocomplete="new-password" placeholder="새로운 NovelAI API 키 입력">
+            </div>
+            <button type="button" id="save-api-key">API 키 변경</button>
+            <p id="api-key-save-status" role="status"></p>
+        </div>
+    </details>
+
+    <!-- 스크롤 위치와 관계없이 화면 아래쪽에 떠 있는 설정 저장 버튼 -->
+    <div class="save-actions">
+        <p id="save-status" role="status"></p>
+        <button type="button" id="save-button">설정 저장</button>
+        <button type="button" id="shutdown-button" class="danger-button">Naify 종료</button>
+    </div>
+
+    <!-- 브라우저 정책상 탭을 닫을 수 없을 때 보여줄 종료 완료 화면 -->
+    <div id="shutdown-screen" class="shutdown-screen" hidden>
+        <div class="shutdown-message">
+            <h2>Naify 종료 요청 접수.</h2>
+            <p>이미지 생성 작업을 마친 뒤 서버가 종료됩니다. 이 탭을 닫아도 좋습니다.</p>
+        </div>
+    </div>
+
+    <script>
+        // ------------------------------------------------------------
+        // 1. 공통 도우미: 입력 요소 가져오기
+        //    id를 넘기면 해당 입력창을 찾는다.
+        // ------------------------------------------------------------
+        function getInput(id) {
+            const element = document.getElementById(id);
+            return element;
+        }
+
+        // 마지막으로 변경한 해상도 값을 보존하고 반대쪽을 보정한다.
+        let lastEditedDimension = "height";
+        for (const dimension of ["width", "height"]) {
+            getInput(dimension).addEventListener("input", () => {
+                lastEditedDimension = dimension;
+            });
+        }
+
+        // 작업 결과 메시지는 몇 초 뒤 자동으로 숨긴다.
+        const statusTimers = new WeakMap();
+
+        function showTemporaryStatus(element, message, delay = 4000) {
+            clearTimeout(statusTimers.get(element));
+            element.textContent = message;
+            const timer = setTimeout(() => {
+                if (element.textContent === message) element.textContent = "";
+                statusTimers.delete(element);
+            }, delay);
+            statusTimers.set(element, timer);
+        }
+
+        // ------------------------------------------------------------
+        // 2. 서버의 설정을 읽어 입력창에 반영
+        //    GET /config는 generation, prompt, cache로 묶인 JSON을 반환한다.
+        // ------------------------------------------------------------
+        async function loadConfig() {
+            const statusElement = getInput("save-status");
+
+            try {
+                // fetch()는 HTTP 응답을, response.json()은 JSON 본문을 비동기로 읽는다.
+                const response = await fetch("/config");
+                if (!response.ok) {
+                    throw new Error(`설정 조회 실패: HTTP ${response.status}`);
+                }
+                const config = await response.json();
+
+                // 이미지 생성 옵션 표시
+                getInput("model").value = config.generation.model;
+                getInput("width").value = config.generation.width;
+                getInput("height").value = config.generation.height;
+                getInput("steps").value = config.generation.steps;
+                getInput("prompt_guidance").value = config.generation.prompt_guidance;
+                getInput("sampler").value = config.generation.sampler;
+                getInput("prompt_guidance_rescale").value = config.generation.prompt_guidance_rescale;
+                getInput("noise_schedule").value = config.generation.noise_schedule;
+
+                // 프롬프트 및 캐시 옵션 표시
+                getInput("base_prompt").value = config.prompt.base_prompt;
+                getInput("negative_prompt").value = config.prompt.negative_prompt;
+                getInput("max_cache_size").value = config.cache.max_cache_size / (1024 * 1024);
+                getInput("max_images").value = config.cache.max_images;
+            } catch (error) {
+                statusElement.textContent = "설정 정보를 불러오지 못했습니다.";
+                console.error("[Naify] 설정 조회 실패:", error);
+            }
+        }
+
+        // ------------------------------------------------------------
+        // 3. 현재 입력창 값을 모아 NaifyConfig와 같은 JSON 구조로 만들기
+        //    숫자 입력창의 .value도 문자열이므로 Number()로 변환한다.
+        // ------------------------------------------------------------
+        function collectConfig() {
+            const config = {
+                generation: {
+                    model: getInput("model").value,
+                    width: Number(getInput("width").value),
+                    height: Number(getInput("height").value),
+                    steps: Number(getInput("steps").value),
+                    prompt_guidance: Number(getInput("prompt_guidance").value),
+                    sampler: getInput("sampler").value,
+                    prompt_guidance_rescale: Number(getInput("prompt_guidance_rescale").value),
+                    noise_schedule: getInput("noise_schedule").value
+                },
+                prompt: {
+                    base_prompt: getInput("base_prompt").value,
+                    negative_prompt: getInput("negative_prompt").value
+                },
+                cache: {
+                    max_cache_size: (Number(getInput("max_cache_size").value) * 1024 * 1024),
+                    max_images: Number(getInput("max_images").value)
+                }
+            };
+
+            return config;
+        }
+
+        // ------------------------------------------------------------
+        // 4. 설정 저장
+        //    PUT /config로 전송하고, 성공했을 때만 서버의 보정값을 다시 읽는다.
+        // ------------------------------------------------------------
+        async function saveConfig() {
+            const statusElement = getInput("save-status");
+            const config = collectConfig();
+
+            try {
+                const response = await fetch("/config", {
+                    method: "PUT",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Naify-Resolution-Priority": lastEditedDimension
+                    },
+                    body: JSON.stringify(config)
+                });
+
+                if (!response.ok) {
+                    showTemporaryStatus(statusElement, `설정 저장 실패 (HTTP ${response.status})`);
+                    return;
+                }
+
+                showTemporaryStatus(statusElement, "설정 저장 완료!");
+                await loadConfig();
+            } catch (error) {
+                showTemporaryStatus(statusElement, "서버에 연결할 수 없습니다.");
+                console.error("[Naify] 설정 저장 실패:", error);
+            }
+        }
+
+        // ------------------------------------------------------------
+        // 5. API 키 등록 여부 확인
+        //    GET /secrets/status는 키 원문 대신 configured 값만 반환한다.
+        // ------------------------------------------------------------
+        async function loadApiKeyStatus() {
+            const statusElement = getInput("api-key-status");
+
+            try {
+                const response = await fetch("/secrets/status");
+                if (!response.ok) {
+                    throw new Error(`API 키 상태 조회 실패: HTTP ${response.status}`);
+                }
+                const data = await response.json();
+
+                if (!data.configured) {
+                    statusElement.textContent = "API 키가 등록되지 않았습니다.";
+                } else if (data.validation === "valid") {
+                    statusElement.textContent = "API 키 인증이 확인되었습니다.";
+                } else if (data.validation === "invalid") {
+                    statusElement.textContent = "API 키가 유효하지 않습니다. 새 키를 등록하세요.";
+                } else {
+                    statusElement.textContent = "API 키가 등록되어 있지만 인증을 확인하지 못했습니다.";
+                }
+            } catch (error) {
+                statusElement.textContent = "API 키 등록 상태를 확인하지 못했습니다.";
+                console.error("[Naify] API 키 상태 조회 실패:", error);
+            }
+        }
+
+        // ------------------------------------------------------------
+        // 6. API 키 변경
+        //    입력한 키를 PUT /secrets로 전송한다. 기존 키는 조회하지 않는다.
+        // ------------------------------------------------------------
+        async function saveApiKey() {
+            const apiKeyInput = getInput("api-key");
+            const statusElement = getInput("api-key-save-status");
+            const apiKey = apiKeyInput.value.trim();
+
+            // 실수로 빈 문자열을 보내 기존 키를 지우지 않도록 막는다.
+            if (apiKey.length === 0) {
+                showTemporaryStatus(statusElement, "API 키를 입력하세요.");
+                return;
+            }
+
+            // Python의 NaifySecrets 모델과 동일한 필드 이름을 사용한다.
+            const data = { nai_api_key: apiKey };
+
+            try {
+                const response = await fetch("/secrets", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(data)
+                });
+
+                if (!response.ok) {
+                    const message = response.status === 401
+                        ? "잘못된 API 키입니다. 기존 키는 유지됩니다."
+                        : response.status === 503
+                            ? "NovelAI 인증 서버에 연결할 수 없습니다. 기존 키는 유지됩니다."
+                            : `API 키 변경 실패 (HTTP ${response.status})`;
+                    showTemporaryStatus(statusElement, message);
+                    return;
+                }
+
+                showTemporaryStatus(statusElement, "API 키가 변경되었습니다!");
+                apiKeyInput.value = ""; // 성공 후 화면에 입력한 키를 남기지 않음
+                await loadApiKeyStatus();
+            } catch (error) {
+                showTemporaryStatus(statusElement, "서버에 연결할 수 없습니다.");
+                // 민감한 API 키 값은 콘솔에 기록하지 않는다.
+                console.error("[Naify] API 키 변경 실패:", error);
+            }
+        }
+
+        // ------------------------------------------------------------
+        // 7. 캐시 현황 및 미리보기
+        //    새로고침 때 최신순 이미지 목록을 받아 반응형 그리드로 표시한다.
+        // ------------------------------------------------------------
+        async function loadCacheGallery() {
+            const statusElement = getInput("cache-status");
+            const gallery = getInput("cache-gallery");
+
+            try {
+                const response = await fetch("/cache/status", { cache: "no-store" });
+                if (!response.ok) {
+                    throw new Error(`캐시 조회 실패: HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                const sizeMB = (data.cache_size / (1024 * 1024)).toFixed(2);
+                statusElement.textContent = `저장된 이미지 ${data.image_count}개 · 사용 용량 ${sizeMB} MB`;
+
+                // 기존 목록을 비운 후 이미지 요소를 안전하게 생성한다.
+                gallery.replaceChildren();
+                if (data.images.length === 0) {
+                    const empty = document.createElement("p");
+                    empty.textContent = "저장된 캐시 이미지가 없습니다.";
+                    gallery.appendChild(empty);
+                    return;
+                }
+
+                for (const image of data.images) {
+                    const item = document.createElement("figure");
+                    const preview = document.createElement("img");
+                    const caption = document.createElement("figcaption");
+
+                    const imageUrl = `/cache/image/${encodeURIComponent(image.id)}`;
+                    const openImage = document.createElement("a");
+                    openImage.href = imageUrl;
+                    openImage.target = "_blank";
+                    openImage.rel = "noopener";
+                    openImage.className = "cache-image-link";
+                    openImage.title = "이미지를 새 탭에서 열기";
+                    openImage.setAttribute("aria-label", `캐시 이미지 ${image.id.slice(0, 8)} 새 탭에서 열기`);
+
+                    preview.src = imageUrl;
+                    preview.alt = `캐시 이미지 ${image.id.slice(0, 8)}`;
+                    preview.loading = "lazy";
+                    openImage.appendChild(preview);
+
+                    const date = new Date(image.modified_at * 1000);
+                    caption.textContent = `${date.toLocaleString("ko-KR")} · ${(image.size / 1024).toFixed(0)} KB`;
+
+                    item.append(openImage, caption);
+                    gallery.appendChild(item);
+                }
+            } catch (error) {
+                statusElement.textContent = "캐시 목록을 불러오지 못했습니다.";
+                console.error("[Naify] 캐시 조회 실패:", error);
+            }
+        }
+
+        // ------------------------------------------------------------
+        // 8. 캐시 전체 삭제
+        //    사용자 확인을 받은 경우에만 DELETE 요청을 보낸다.
+        //    설정 및 API 키 파일은 삭제하지 않는다.
+        // ------------------------------------------------------------
+        async function clearAllCache() {
+            const confirmed = confirm("캐시 이미지들을 모두 삭제하시겠습니까?\n삭제된 이미지는 다음 요청 시 다시 생성됩니다.");
+            if (!confirmed) {
+                return;
+            }
+
+            const statusElement = getInput("cache-action-status");
+            const button = getInput("clear-cache");
+            button.disabled = true;
+
+            try {
+                const response = await fetch("/cache", {
+                    method: "DELETE",
+                    headers: { "X-Naify-Action": "clear-cache" }
+                });
+                if (!response.ok) {
+                    throw new Error(`캐시 삭제 실패: HTTP ${response.status}`);
+                }
+
+                const result = await response.json();
+                showTemporaryStatus(statusElement, `캐시 이미지 ${result.deleted_count}개를 삭제했습니다.`);
+                await loadCacheGallery();
+            } catch (error) {
+                showTemporaryStatus(statusElement, "캐시 삭제에 실패했습니다.");
+                console.error("[Naify] 캐시 삭제 실패:", error);
+            } finally {
+                button.disabled = false;
+            }
+        }
+
+        // ------------------------------------------------------------
+        // 9. 대기 중인 생성 요청 취소
+        //    Worker가 이미 시작한 생성은 유지하고, 큐에서 기다리는 요청만 취소한다.
+        // ------------------------------------------------------------
+        async function cancelPendingGenerationRequests() {
+            const confirmed = confirm(
+                "대기 중인 이미지 생성 요청을 모두 취소하시겠습니까?\n현재 생성 중인 이미지는 계속 처리됩니다."
+            );
+            if (!confirmed) return;
+
+            const button = getInput("cancel-pending-button");
+            const statusElement = getInput("cancel-pending-status");
+            button.disabled = true;
+
+            try {
+                const response = await fetch("/queue/cancel_pending", {
+                    method: "POST",
+                    headers: { "X-Naify-Action": "cancel-pending" }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`대기 요청 취소 실패: HTTP ${response.status}`);
+                }
+
+                const result = await response.json();
+                showTemporaryStatus(statusElement, `대기 요청 ${result.cancelled_count}건을 취소했습니다.`);
+            } catch (error) {
+                showTemporaryStatus(statusElement, "대기 요청 취소에 실패했습니다.");
+                console.error("[Naify] 대기 요청 취소 실패:", error);
+            } finally {
+                button.disabled = false;
+            }
+        }
+
+        // ------------------------------------------------------------
+        // 10. Naify 서버 종료
+        //    종료 요청은 즉시 응답하고, Python은 기존 이미지 작업을 마친 뒤 종료한다.
+        //    브라우저가 탭 자동 닫기를 허용하지 않으면 종료 안내 화면을 보여준다.
+        // ------------------------------------------------------------
+        async function shutdownNaify() {
+            const confirmed = confirm(
+                "Naify를 종료하시겠습니까?\n진행 중인 이미지 생성이 끝나면 서버가 종료됩니다."
+            );
+
+            if (!confirmed) {
+                return;
+            }
+
+            const button = getInput("shutdown-button");
+            const statusElement = getInput("save-status");
+            button.disabled = true;
+            statusElement.textContent = "종료 요청 중...";
+
+            // SSE 연결을 먼저 닫아 서버 종료를 가로막지 않도록 한다.
+            closeServerLogs();
+
+            try {
+                const response = await fetch("/shutdown", {
+                    method: "POST",
+                    headers: { "X-Naify-Action": "shutdown" }
+                });
+
+                if (!response.ok && response.status !== 409) {
+                    throw new Error(`서버 종료 요청 실패: HTTP ${response.status}`);
+                }
+
+                // 요청이 접수되면 서버가 종료될 수 있으므로 추가 통신은 시도하지 않는다.
+                getInput("shutdown-screen").hidden = false;
+
+                // 일반 브라우저 탭은 보안 정책상 window.close()를 거부할 수 있다.
+                // 그 경우 위 안내 화면이 그대로 남아 사용자가 직접 닫을 수 있다.
+                setTimeout(() => window.close(), 400);
+            } catch (error) {
+                showTemporaryStatus(statusElement, "종료 요청에 실패했습니다.");
+                button.disabled = false;
+                connectServerLogs(); // 종료 요청 실패 시 로그 수신 복구
+                console.error("[Naify] 종료 요청 실패:", error);
+            }
+        }
+
+        // 로그 영역 오른쪽 아래 손잡이로 크기를 직접 조절한다.
+        function enableLogResize() {
+            const output = getInput("server-log-output");
+            const handle = getInput("server-log-resize");
+            const container = output.parentElement;
+
+            handle.addEventListener("pointerdown", (event) => {
+                if (event.button !== 0) return;
+                event.preventDefault();
+
+                const startY = event.clientY;
+                const startHeight = container.offsetHeight;
+                handle.setPointerCapture(event.pointerId);
+
+                function onMove(moveEvent) {
+                    container.style.height = Math.max(160, startHeight + moveEvent.clientY - startY) + "px";
+                }
+
+                function onEnd() {
+                    handle.removeEventListener("pointermove", onMove);
+                    handle.removeEventListener("pointerup", onEnd);
+                    handle.removeEventListener("pointercancel", onEnd);
+                }
+
+                handle.addEventListener("pointermove", onMove);
+                handle.addEventListener("pointerup", onEnd);
+                handle.addEventListener("pointercancel", onEnd);
+            });
+        }
+
+        // 10. 서버 로그 실시간 수신 (Server-Sent Events)
+        let serverLogStream = null;
+
+        function closeServerLogs() {
+            if (serverLogStream !== null) {
+                serverLogStream.close();
+                serverLogStream = null;
+            }
+        }
+
+        function connectServerLogs() {
+            closeServerLogs();
+            const output = getInput("server-log-output");
+            const status = getInput("log-connection-status");
+            const stream = new EventSource("/logs/stream");
+            serverLogStream = stream;
+            let lastRenderedId = 0;
+
+            stream.onopen = () => {
+                status.textContent = "● 연결됨";
+                status.classList.remove("disconnected");
+            };
+
+            stream.onmessage = (event) => {
+                const id = Number(event.lastEventId);
+                // SSE 자동 재연결 시 이미 화면에 표시한 로그는 무시한다.
+                if (Number.isSafeInteger(id) && id > 0 && id <= lastRenderedId) {
+                    return;
+                }
+
+                let message;
+                try {
+                    message = JSON.parse(event.data);
+                } catch (error) {
+                    console.error("[Naify] 잘못된 로그 데이터:", error);
+                    return;
+                }
+
+                const atBottom = output.scrollHeight - output.scrollTop - output.clientHeight < 48;
+                const line = document.createElement("div");
+                line.textContent = String(message);
+                output.appendChild(line);
+
+                while (output.childElementCount > 300) {
+                    output.firstElementChild.remove();
+                }
+
+                if (Number.isSafeInteger(id) && id > 0) {
+                    lastRenderedId = id;
+                }
+                if (atBottom) {
+                    output.scrollTop = output.scrollHeight;
+                }
+            };
+
+            stream.onerror = () => {
+                status.textContent = "● 연결 끊김 · 재연결 중...";
+                status.classList.add("disconnected");
+            };
+
+            window.addEventListener("pagehide", closeServerLogs, { once: true });
+        }
+
+        // ------------------------------------------------------------
+        // 11. 초기화: 버튼을 연결하고 저장된 설정/키 상태를 불러오기
+        // ------------------------------------------------------------
+        getInput("save-button").addEventListener("click", saveConfig);
+        getInput("save-api-key").addEventListener("click", saveApiKey);
+        getInput("refresh-cache").addEventListener("click", loadCacheGallery);
+        getInput("clear-cache").addEventListener("click", clearAllCache);
+        getInput("cancel-pending-button").addEventListener("click", cancelPendingGenerationRequests);
+        getInput("shutdown-button").addEventListener("click", shutdownNaify);
+        getInput("cache-gallery-panel").addEventListener("toggle", (event) => {
+            if (event.target.open) {
+                loadCacheGallery();
+            }
+        });
+        loadConfig();
+        loadApiKeyStatus();
+        connectServerLogs();
+        enableLogResize();
+    </script>
+</body>
+</html>

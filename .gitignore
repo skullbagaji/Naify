@@ -1,0 +1,24 @@
+# Python 캐시
+__pycache__/
+*.py[cod]
+
+# Python 가상 환경
+.venv/
+venv/
+
+# PyInstaller 빌드 결과물
+build/
+dist/
+*.spec
+
+# Naify 사용자 데이터
+cache/
+config.json
+secrets.json
+
+# 환경 변수 및 비밀 정보
+.env
+.env.*
+
+# IDE 설정
+.vscode/
